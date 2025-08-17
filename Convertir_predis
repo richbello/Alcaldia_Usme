@@ -1,0 +1,47 @@
+!pip uninstall -y fitz
+!pip install --upgrade PyMuPDF
+
+
+import fitz  # este sí es el de PyMuPDF ✅
+
+from google.colab import files
+
+# Subir archivo PDF desde tu PC
+uploaded = files.upload()
+
+# Tomar el primer archivo subido
+pdf_path = list(uploaded.keys())[0]
+
+# Abrir el PDF
+doc = fitz.open(pdf_path)
+
+# Extraer texto
+texto = ""
+for pagina in doc:
+    texto += pagina.get_text("text")
+
+# Mostrar los primeros 1000 caracteres
+print(texto[:1000])
+
+
+!pip install camelot-py[cv] openpyxl ghostscript
+
+import camelot
+import pandas as pd
+
+# Ruta de tu PDF subido
+pdf_path = "/content/REGISTROS PREDIS 2005.pdf"
+
+# Extraer tablas (stream = detecta tablas con texto alineado)
+tablas = camelot.read_pdf(pdf_path, pages="all", flavor="stream")
+
+print("Tablas encontradas:", len(tablas))
+
+# Unir todas las tablas en un solo DataFrame
+df_list = [t.df for t in tablas]
+df = pd.concat(df_list, ignore_index=True)
+
+# Guardar en Excel
+df.to_excel("registros_predis_2005.xlsx", index=False)
+from google.colab import files
+files.download("registros_predis_2005.xlsx")
