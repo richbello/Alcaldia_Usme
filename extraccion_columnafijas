@@ -1,0 +1,127 @@
+import re
+import fitz  # PyMuPDF
+import pandas as pd
+import os
+from datetime import datetime
+
+# 📌 Columnas fijas del formato oficial
+columnas = [
+    "CDP","Posición","Fecha Documento","Fecha Contabilización","Clase Documento","Sociedad","Moneda",
+    "Importe Original","Posición Presupuestal","Fondos","Elemento PEP","Periodo Presupuestario",
+    "Cuenta de Mayor","Objeto","Número Oficio","Fecha Oficio","ID Solicitante","ID Responsable",
+    "Num. Ext. Entidad","Imagen","Plazo","Descripción Actividades","Código Proyecto","Archivo"
+]
+
+def extraer_cdps(pdf_path, contador, carpeta_imagenes):
+    doc = fitz.open(pdf_path)
+    resultados = []
+
+    for page in doc:
+        texto = page.get_text("text")
+
+        # Extraer Objeto
+        objeto_match = re.search(r"OBJETO:\s*(.+?)(?=VALOR:)", texto, re.S)
+        objeto = objeto_match.group(1).strip() if objeto_match else "No encontrado"
+
+        # Extraer Valor
+        valor_match = re.search(r"VALOR:\s*\$?\s*([\d\.,]+)", texto)
+        valor = valor_match.group(1).strip() if valor_match else "No encontrado"
+
+        # Extraer Descripción de Actividades
+        descripcion_match = re.search(
+            r"DESCRIPCIÓN DE ACTIVIDADES DE LA SOLICITUD\s*(.+?)(OBJETO:|VALOR:|$)",
+            texto,
+            re.S
+        )
+        descripcion = descripcion_match.group(1).strip() if descripcion_match else "No encontrado"
+
+        # Extraer Código de Proyecto
+        numero_match = re.search(r"\b(\d{4})\b", descripcion)
+        if numero_match:
+            numero = numero_match.group(1)
+            codigo = f"O230117459920242{numero}01000"
+        else:
+            codigo = "No encontrado"
+
+        # Extraer Número de Solicitud
+        solicitud_match = re.search(r"PARA LA SOLICITUD No\.?\s*(\d+)", texto)
+        solicitud = solicitud_match.group(1) if solicitud_match else "No encontrado"
+
+        # Extraer Plazo
+        plazo_match = re.search(r"PLAZO:\s*(.+)", texto)
+        plazo = plazo_match.group(1).strip() if plazo_match else "No encontrado"
+
+        # Extraer Imagen
+        imagenes = []
+        for img in page.get_images(full=True):
+            xref = img[0]
+            pix = fitz.Pixmap(doc, xref)
+            nombre_img = f"{os.path.splitext(os.path.basename(pdf_path))[0]}_img_{xref}.png"
+            ruta_img = os.path.join(carpeta_imagenes, nombre_img)
+            if not pix.alpha:
+                pix.save(ruta_img)
+            else:
+                fitz.Pixmap(pix, 0).save(ruta_img)
+            imagenes.append(ruta_img)
+
+        # 📅 Fecha actual
+        fecha_hoy = datetime.now().strftime("%d.%m.%Y")
+
+        # Construir fila con columnas fijas + extraídas
+        fila = {
+            "CDP": "1",
+            "Posición": "1",
+            "Fecha Documento": fecha_hoy,
+            "Fecha Contabilización": fecha_hoy,
+            "Clase Documento": "CP",
+            "Sociedad": "1001",
+            "Moneda": "COP",
+            "Importe Original": valor,
+            "Posición Presupuestal": "1-100-I079",
+            "Fondos": "2026",
+            "Elemento PEP": "7990990000",
+            "Periodo Presupuestario": "2026",
+            "Cuenta de Mayor": "7990990000",
+            "Objeto": objeto,
+            "Número Oficio": solicitud,
+            "Fecha Oficio": fecha_hoy,
+            "ID Solicitante": "1000835316",
+            "ID Responsable": "1000835316",
+            "Num. Ext. Entidad": str(contador),
+            "Imagen": ", ".join(imagenes) if imagenes else "No encontrada",
+            "Plazo": plazo,
+            "Descripción Actividades": descripcion,
+            "Código Proyecto": codigo,
+            "Archivo": os.path.basename(pdf_path)
+        }
+
+        resultados.append(fila)
+
+    return resultados
+
+
+# 📂 Ruta en Codespaces (repositorio GitHub)
+carpeta = "/workspaces/Alcaldia_Usme/Cuarto-Grupo"
+carpeta_imagenes = os.path.join(carpeta, "imagenes_cdps")
+os.makedirs(carpeta_imagenes, exist_ok=True)
+
+# 📄 Procesar PDFs
+archivos = [os.path.join(carpeta, f) for f in os.listdir(carpeta) if f.lower().endswith(".pdf")]
+print("📂 Archivos encontrados:", archivos)  # Depuración
+
+todos = []
+contador = 1
+for archivo in archivos:
+    todos.extend(extraer_cdps(archivo, contador, carpeta_imagenes))
+    contador += 1
+
+# 📊 Generar Excel
+excel_path = os.path.join(carpeta, "cdps2.xlsx")
+if os.path.exists(excel_path):
+    os.remove(excel_path)
+
+df = pd.DataFrame(todos, columns=columnas)
+df.to_excel(excel_path, index=False, engine="openpyxl")
+
+print(f"✅ Archivo Excel generado: {excel_path}")
+print(f"📄 Filas creadas: {len(todos)}")
